@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to create (e.g. v0.1.0). Must start with 'v'."
+        required: true
+        type: string
 
 jobs:
   release:
@@ -34,6 +39,21 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "::error::Version must start with 'v' followed by semver (e.g. v0.1.0)"
+              exit 1
+            fi
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       # ── System dependencies (Linux) ──────────────────────────────────
@@ -135,14 +155,18 @@ jobs:
             "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-${JT_ARCH}"
           chmod +x "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}"
 
-      - name: Create jivetalking placeholder (Windows)
+      - name: Download jivetalking for WSL (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          # jivetalking does not publish Windows binaries yet; create a placeholder
-          # so the Tauri build succeeds. Users will need to supply their own binary.
+          # Download the Linux amd64 binary for execution via WSL at runtime.
+          Invoke-WebRequest -Uri "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-linux-amd64" `
+            -OutFile "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\jivetalking-wsl"
+
+          # Tauri still requires a Windows sidecar entry to exist so the build
+          # succeeds; create a small placeholder.
           $placeholder = "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\jivetalking-${{ matrix.rust_target }}.exe"
-          Set-Content -Path $placeholder -Value "echo jivetalking is not yet available for Windows" -Encoding ASCII
+          Set-Content -Path $placeholder -Value "echo jivetalking runs via WSL on Windows" -Encoding ASCII
 
       # ── Build & release ──────────────────────────────────────────────
       - name: Build Tauri app
@@ -150,10 +174,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Sermon Publisher ${{ github.ref_name }}"
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: "Sermon Publisher ${{ steps.version.outputs.tag }}"
           releaseBody: |
-            ## Sermon Publisher ${{ github.ref_name }}
+            ## Sermon Publisher ${{ steps.version.outputs.tag }}
 
             Download the installer for your platform below.
 
@@ -166,7 +190,7 @@ jobs:
 
             ### Bundled dependencies
             - **ffmpeg** — included in the installer (used for audio extraction and silence detection)
-            - **jivetalking** — included in the installer (used for audio processing and normalisation; Linux and macOS only)
+            - **jivetalking** — included in the installer (used for audio processing and normalisation; on Windows, runs via WSL if available)
 
             ### Notes
             - On macOS you may need to right-click → Open the first time to bypass Gatekeeper.

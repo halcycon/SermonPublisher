@@ -90,6 +90,26 @@ h1 {
   font-size: 0.9rem;
 }
 
+/* ── Settings hints ───────────────────────────────────────────────────────── */
+
+.settings-hint {
+  grid-column: 1 / -1;
+  margin: 0.3rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.settings-hint--ok {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
 /* ── Form ─────────────────────────────────────────────────────────────────── */
 
 .publish-form {
