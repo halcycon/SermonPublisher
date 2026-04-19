@@ -15,6 +15,7 @@ jobs:
   # ── Validate version tag once before building ───────────────────────────
   validate:
     runs-on: ubuntu-latest
+    permissions: {}
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
