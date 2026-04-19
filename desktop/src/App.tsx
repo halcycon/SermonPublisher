@@ -32,6 +32,12 @@ type SeriesInfo = {
   latestDate: string;
 };
 
+type SpeakerInfo = {
+  name: string;
+  sermonCount: number;
+  latestDate: string;
+};
+
 type PublishRequest = {
   title: string;
   speaker: string;
@@ -77,6 +83,11 @@ function App() {
   const [seriesList, setSeriesList] = useState<SeriesInfo[]>([]);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [newSeriesMode, setNewSeriesMode] = useState(false);
+
+  // Speaker state
+  const [speakersList, setSpeakersList] = useState<SpeakerInfo[]>([]);
+  const [speakersLoading, setSpeakersLoading] = useState(false);
+  const [newSpeakerMode, setNewSpeakerMode] = useState(false);
 
   // Scripture state (array of references)
   const [scriptures, setScriptures] = useState<string[]>([""]);
@@ -161,6 +172,34 @@ function App() {
       setSeriesLoading(false);
     }
   }, [github, githubConfigured, series]);
+
+  // ── Speaker fetching ─────────────────────────────────────────────────
+
+  const fetchSpeakers = useCallback(async () => {
+    if (!githubConfigured) return;
+    setSpeakersLoading(true);
+    setError("");
+    try {
+      const result = await invoke<SpeakerInfo[]>("list_speakers", {
+        githubOwner: github.owner,
+        githubRepo: github.repo,
+        githubBranch: github.branch || "main",
+        githubToken: github.token,
+        contentDir: "content/sermons",
+      });
+      setSpeakersList(result);
+      if (result.length > 0 && !speaker) {
+        setSpeaker(result[0].name);
+      }
+      setNewSpeakerMode(result.length === 0);
+    } catch (err) {
+      setError(
+        `Failed to fetch speakers: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setSpeakersLoading(false);
+    }
+  }, [github, githubConfigured, speaker]);
 
   // ── Silence detection ────────────────────────────────────────────────────
 
@@ -306,10 +345,50 @@ function App() {
           <div className="row-2">
             <label>
               Speaker
-              <input
-                value={speaker}
-                onChange={(e) => setSpeaker(e.currentTarget.value)}
-              />
+              <div className="series-row">
+                {!newSpeakerMode ? (
+                  <select
+                    value={speaker}
+                    onChange={(e) => setSpeaker(e.currentTarget.value)}
+                  >
+                    <option value="">— select speaker —</option>
+                    {speakersList.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.name} ({s.sermonCount})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    placeholder="Speaker name"
+                    value={speaker}
+                    onChange={(e) => setSpeaker(e.currentTarget.value)}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn-sm"
+                  onClick={fetchSpeakers}
+                  disabled={speakersLoading || !githubConfigured}
+                  title={
+                    githubConfigured
+                      ? "Fetch speakers from site repo"
+                      : "Configure GitHub settings first"
+                  }
+                >
+                  {speakersLoading ? "Loading…" : "↻ Fetch"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-sm btn-outline"
+                  onClick={() => {
+                    setNewSpeakerMode(!newSpeakerMode);
+                    if (!newSpeakerMode) setSpeaker("");
+                  }}
+                >
+                  {newSpeakerMode ? "Choose Existing" : "+ New"}
+                </button>
+              </div>
             </label>
             <label>
               Date

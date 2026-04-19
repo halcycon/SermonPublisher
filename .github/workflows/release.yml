@@ -115,6 +115,35 @@ jobs:
             cp "$(which ffmpeg)" "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/ffmpeg-${{ matrix.rust_target }}"
           fi
 
+      # ── Download jivetalking binary ──────────────────────────────────
+      - name: Download jivetalking (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          curl -fsSL -o "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}" \
+            "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-linux-amd64"
+          chmod +x "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}"
+
+      - name: Download jivetalking (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          if [ "${{ matrix.rust_target }}" = "aarch64-apple-darwin" ]; then
+            JT_ARCH="darwin-arm64"
+          else
+            JT_ARCH="darwin-amd64"
+          fi
+          curl -fsSL -o "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}" \
+            "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-${JT_ARCH}"
+          chmod +x "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}"
+
+      - name: Create jivetalking placeholder (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          # jivetalking does not publish Windows binaries yet; create a placeholder
+          # so the Tauri build succeeds. Users will need to supply their own binary.
+          $placeholder = "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\jivetalking-${{ matrix.rust_target }}.exe"
+          Set-Content -Path $placeholder -Value "echo jivetalking is not yet available for Windows" -Encoding ASCII
+
       # ── Build & release ──────────────────────────────────────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -137,6 +166,7 @@ jobs:
 
             ### Bundled dependencies
             - **ffmpeg** — included in the installer (used for audio extraction and silence detection)
+            - **jivetalking** — included in the installer (used for audio processing and normalisation; Linux and macOS only)
 
             ### Notes
             - On macOS you may need to right-click → Open the first time to bypass Gatekeeper.
