@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to create (e.g. v0.1.0). Must start with 'v'."
+        required: true
+        type: string
 
 jobs:
   release:
@@ -34,6 +39,21 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "::error::Version must start with 'v' followed by semver (e.g. v0.1.0)"
+              exit 1
+            fi
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       # ── System dependencies (Linux) ──────────────────────────────────
@@ -150,10 +170,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Sermon Publisher ${{ github.ref_name }}"
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: "Sermon Publisher ${{ steps.version.outputs.tag }}"
           releaseBody: |
-            ## Sermon Publisher ${{ github.ref_name }}
+            ## Sermon Publisher ${{ steps.version.outputs.tag }}
 
             Download the installer for your platform below.
 
@@ -166,7 +186,7 @@ jobs:
 
             ### Bundled dependencies
             - **ffmpeg** — included in the installer (used for audio extraction and silence detection)
-            - **jivetalking** — included in the installer (used for audio processing and normalisation; Linux and macOS only)
+            - **jivetalking** — included in the installer (used for audio processing and normalisation; Linux and macOS only; Windows builds skip this step)
 
             ### Notes
             - On macOS you may need to right-click → Open the first time to bypass Gatekeeper.

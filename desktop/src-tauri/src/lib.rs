@@ -220,15 +220,25 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
 
     let markdown = build_markdown(&request, &slug, &website_audio_path, &thumbnail_path);
 
-    let mut steps = vec![
-        PublishStep {
-            id: "extract-audio".to_string(),
-            description: "Extract raw audio from source video".to_string(),
-        },
-        PublishStep {
+    let mut steps = vec![PublishStep {
+        id: "extract-audio".to_string(),
+        description: "Extract raw audio from source video".to_string(),
+    }];
+
+    if cfg!(not(target_os = "windows")) {
+        steps.push(PublishStep {
             id: "run-jivetalking".to_string(),
             description: "Run Jivetalking on full extracted audio".to_string(),
-        },
+        });
+    } else {
+        steps.push(PublishStep {
+            id: "skip-jivetalking".to_string(),
+            description: "Skip Jivetalking audio normalisation (not available on Windows)"
+                .to_string(),
+        });
+    }
+
+    steps.extend([
         PublishStep {
             id: "detect-leading-silence".to_string(),
             description: format!(
@@ -261,7 +271,7 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
                 request.github_branch.trim()
             ),
         },
-    ];
+    ]);
 
     if request.youtube_upload_enabled {
         steps.push(PublishStep {
@@ -549,7 +559,12 @@ mod tests {
 
         let plan = build_publish_plan(request).expect("plan should build");
 
-        assert!(plan.steps.iter().any(|s| s.id == "run-jivetalking"));
+        assert!(plan.steps.iter().any(|s| s.id
+            == if cfg!(not(target_os = "windows")) {
+                "run-jivetalking"
+            } else {
+                "skip-jivetalking"
+            }));
         assert!(plan.steps.iter().any(|s| s.id == "github-write"));
         assert!(plan.steps.iter().any(|s| s.id == "youtube-upload"));
         assert!(plan.markdown.contains("youtubeID"));
