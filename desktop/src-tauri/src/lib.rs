@@ -57,6 +57,14 @@ struct SeriesInfo {
     latest_date: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakerInfo {
+    name: String,
+    sermon_count: u32,
+    latest_date: String,
+}
+
 /// Entry returned by the GitHub Contents API directory listing.
 #[derive(Debug, Deserialize)]
 struct GitHubContentEntry {
@@ -399,6 +407,94 @@ async fn list_series(
     Ok(series)
 }
 
+/// Fetch the list of speakers/preachers from the Hugo site's GitHub repository
+/// by reading the content directory and parsing front-matter from recent entries.
+#[tauri::command]
+async fn list_speakers(
+    github_owner: String,
+    github_repo: String,
+    github_branch: String,
+    github_token: String,
+    content_dir: String,
+) -> Result<Vec<SpeakerInfo>, String> {
+    let client = reqwest::Client::new();
+    let dir_path = content_dir.trim_matches('/');
+
+    // 1. List the content directory via the GitHub Contents API.
+    let dir_url = format!(
+        "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
+        github_owner, github_repo, dir_path, github_branch
+    );
+
+    let dir_response = client
+        .get(&dir_url)
+        .header("Authorization", format!("Bearer {}", github_token))
+        .header("User-Agent", "SermonPublisher")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to GitHub: {}", e))?;
+
+    if !dir_response.status().is_success() {
+        let status = dir_response.status();
+        let body = dir_response.text().await.unwrap_or_default();
+        return Err(format!("GitHub API returned {} — {}", status, body));
+    }
+
+    let entries: Vec<GitHubContentEntry> = dir_response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse directory listing: {}", e))?;
+
+    let mut dirs: Vec<&GitHubContentEntry> =
+        entries.iter().filter(|e| e.entry_type == "dir").collect();
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // 2. For the most-recent entries, fetch raw index.md and extract speaker.
+    let recent: Vec<&&GitHubContentEntry> = dirs.iter().rev().take(MAX_RECENT_SERMONS).collect();
+    let mut speaker_map: HashMap<String, SpeakerInfo> = HashMap::new();
+
+    for dir in recent {
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/{}/{}/{}/{}/index.md",
+            github_owner, github_repo, github_branch, dir_path, dir.name
+        );
+
+        let file_resp = client
+            .get(&raw_url)
+            .header("Authorization", format!("Bearer {}", github_token))
+            .header("User-Agent", "SermonPublisher")
+            .send()
+            .await;
+
+        if let Ok(resp) = file_resp {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    if let Some(speaker_name) = extract_front_matter_field(&text, "speaker") {
+                        let date =
+                            extract_front_matter_field(&text, "date").unwrap_or_default();
+                        let entry =
+                            speaker_map.entry(speaker_name.clone()).or_insert(SpeakerInfo {
+                                name: speaker_name,
+                                sermon_count: 0,
+                                latest_date: String::new(),
+                            });
+                        entry.sermon_count += 1;
+                        if date > entry.latest_date {
+                            entry.latest_date = date;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut speakers: Vec<SpeakerInfo> = speaker_map.into_values().collect();
+    speakers.sort_by(|a, b| b.sermon_count.cmp(&a.sermon_count).then(a.name.cmp(&b.name)));
+
+    Ok(speakers)
+}
+
 // ── App entry ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -409,7 +505,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             build_publish_plan,
             detect_leading_silence,
-            list_series
+            list_series,
+            list_speakers
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -524,5 +621,15 @@ mod tests {
     fn extract_front_matter_returns_none_for_missing_field() {
         let content = "---\ntitle: \"Test\"\n---\n\nBody";
         assert_eq!(extract_front_matter_field(content, "series"), None);
+    }
+
+    #[test]
+    fn extract_front_matter_speaker() {
+        let content =
+            "---\ntitle: \"Test\"\nspeaker: \"Jane Doe\"\ndate: \"2026-04-19\"\n---\n\nBody";
+        assert_eq!(
+            extract_front_matter_field(content, "speaker"),
+            Some("Jane Doe".to_string())
+        );
     }
 }
