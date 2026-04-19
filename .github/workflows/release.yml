@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            ffmpeg_url: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            ffmpeg_bin: ffmpeg
+          - platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            ffmpeg_url: https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+            ffmpeg_bin: ffmpeg.exe
+          - platform: macos-latest
+            rust_target: aarch64-apple-darwin
+            ffmpeg_url: https://evermeet.cx/ffmpeg/getrelease
+            ffmpeg_bin: ffmpeg
+          - platform: macos-latest
+            rust_target: x86_64-apple-darwin
+            ffmpeg_url: https://evermeet.cx/ffmpeg/getrelease
+            ffmpeg_bin: ffmpeg
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── System dependencies (Linux) ──────────────────────────────────
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      # ── Toolchains ───────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./desktop/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # ── Download ffmpeg static binary ────────────────────────────────
+      - name: Download ffmpeg (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p /tmp/ffmpeg-dl
+          cd /tmp/ffmpeg-dl
+          wget -q "${{ matrix.ffmpeg_url }}" -O ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          FFMPEG_BIN=$(find . -name ffmpeg -type f | head -1)
+          chmod +x "$FFMPEG_BIN"
+          cp "$FFMPEG_BIN" "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/ffmpeg-${{ matrix.rust_target }}"
+
+      - name: Download ffmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:TEMP\ffmpeg-dl"
+          Invoke-WebRequest -Uri "${{ matrix.ffmpeg_url }}" -OutFile "$env:TEMP\ffmpeg-dl\ffmpeg.zip"
+          Expand-Archive -Path "$env:TEMP\ffmpeg-dl\ffmpeg.zip" -DestinationPath "$env:TEMP\ffmpeg-dl"
+          $ffmpegExe = Get-ChildItem -Path "$env:TEMP\ffmpeg-dl" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName -Destination "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\ffmpeg-${{ matrix.rust_target }}.exe"
+
+      - name: Download ffmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          mkdir -p /tmp/ffmpeg-dl
+          cd /tmp/ffmpeg-dl
+          # evermeet.cx provides a universal binary; fall back to brew if unavailable
+          if curl -fsSL -o ffmpeg.7z "${{ matrix.ffmpeg_url }}"; then
+            if command -v 7z &>/dev/null; then
+              7z x ffmpeg.7z
+            else
+              brew install p7zip
+              7z x ffmpeg.7z
+            fi
+            chmod +x ffmpeg
+            cp ffmpeg "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/ffmpeg-${{ matrix.rust_target }}"
+          else
+            # Fallback: install via Homebrew and copy
+            brew install ffmpeg
+            cp "$(which ffmpeg)" "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/ffmpeg-${{ matrix.rust_target }}"
+          fi
+
+      # ── Build & release ──────────────────────────────────────────────
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Sermon Publisher ${{ github.ref_name }}"
+          releaseBody: |
+            ## Sermon Publisher ${{ github.ref_name }}
+
+            Download the installer for your platform below.
+
+            | Platform | File |
+            |----------|------|
+            | Windows  | `.msi` or `.exe` installer |
+            | macOS (Apple Silicon) | `.dmg` |
+            | macOS (Intel) | `.dmg` |
+            | Linux    | `.deb` or `.AppImage` |
+
+            ### Bundled dependencies
+            - **ffmpeg** — included in the installer (used for audio extraction and silence detection)
+
+            ### Notes
+            - On macOS you may need to right-click → Open the first time to bypass Gatekeeper.
+          releaseDraft: true
+          prerelease: false
+          projectPath: "./desktop"
+          args: "--target ${{ matrix.rust_target }}"
