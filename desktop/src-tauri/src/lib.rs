@@ -559,12 +559,15 @@ mod tests {
 
         let plan = build_publish_plan(request).expect("plan should build");
 
-        assert!(plan.steps.iter().any(|s| s.id
-            == if cfg!(not(target_os = "windows")) {
-                "run-jivetalking"
-            } else {
-                "skip-jivetalking"
-            }));
+        let expected_jivetalking_step = if cfg!(not(target_os = "windows")) {
+            "run-jivetalking"
+        } else {
+            "skip-jivetalking"
+        };
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.id == expected_jivetalking_step));
         assert!(plan.steps.iter().any(|s| s.id == "github-write"));
         assert!(plan.steps.iter().any(|s| s.id == "youtube-upload"));
         assert!(plan.markdown.contains("youtubeID"));
