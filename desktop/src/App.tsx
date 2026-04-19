@@ -38,6 +38,12 @@ type SpeakerInfo = {
   latestDate: string;
 };
 
+type JivetalkingStatus = {
+  available: boolean;
+  method: string;
+  message: string;
+};
+
 type PublishRequest = {
   title: string;
   speaker: string;
@@ -95,6 +101,9 @@ function App() {
   // Silence detection
   const [detectingSilence, setDetectingSilence] = useState(false);
 
+  // Jivetalking availability
+  const [jivetalkingStatus, setJivetalkingStatus] = useState<JivetalkingStatus | null>(null);
+
   // Form state
   const [title, setTitle] = useState("");
   const [speaker, setSpeaker] = useState("");
@@ -115,6 +124,15 @@ function App() {
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(github));
   }, [github]);
+
+  // Check jivetalking availability on mount
+  useEffect(() => {
+    invoke<JivetalkingStatus>("check_jivetalking_status")
+      .then(setJivetalkingStatus)
+      .catch(() => {
+        /* ignore — status stays null */
+      });
+  }, []);
 
   const updateGitHub = <K extends keyof GitHubConfig>(key: K, value: string) => {
     setGitHub((prev) => ({ ...prev, [key]: value }));
@@ -323,6 +341,17 @@ function App() {
                 onChange={(e) => updateGitHub("token", e.currentTarget.value)}
               />
             </label>
+
+            {jivetalkingStatus && !jivetalkingStatus.available && (
+              <p className="settings-hint">
+                ⚠️ {jivetalkingStatus.message}
+              </p>
+            )}
+            {jivetalkingStatus && jivetalkingStatus.method === "wsl" && (
+              <p className="settings-hint settings-hint--ok">
+                ✓ {jivetalkingStatus.message}
+              </p>
+            )}
           </div>
         )}
       </section>

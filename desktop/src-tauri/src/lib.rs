@@ -1,6 +1,64 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ── Jivetalking availability ─────────────────────────────────────────────────
+
+/// How jivetalking can be executed on this platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JivetalkingMethod {
+    /// Native binary (Linux / macOS).
+    Native,
+    /// Via Windows Subsystem for Linux.
+    Wsl,
+    /// Not available — WSL is missing on Windows.
+    Unavailable,
+}
+
+/// Probe the current platform for jivetalking support.
+fn jivetalking_method() -> JivetalkingMethod {
+    if cfg!(not(target_os = "windows")) {
+        return JivetalkingMethod::Native;
+    }
+    if is_wsl_available() {
+        JivetalkingMethod::Wsl
+    } else {
+        JivetalkingMethod::Unavailable
+    }
+}
+
+/// Returns `true` when a working WSL installation (with at least one
+/// distribution) is detected.  Always returns `false` on non-Windows targets.
+fn is_wsl_available() -> bool {
+    if cfg!(not(target_os = "windows")) {
+        return false;
+    }
+    std::process::Command::new("wsl")
+        .arg("--status")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Convert a Windows path to its WSL mount equivalent.
+///
+/// `C:\Users\foo\audio.flac` → `/mnt/c/Users/foo/audio.flac`
+fn windows_path_to_wsl(path: &str) -> String {
+    let path = path.trim();
+    // Drive-letter pattern: C:\… or C:/…
+    if path.len() >= 2
+        && path.as_bytes()[0].is_ascii_alphabetic()
+        && path.as_bytes()[1] == b':'
+    {
+        let drive = (path.as_bytes()[0] as char).to_ascii_lowercase();
+        let rest = &path[2..];
+        format!("/mnt/{}{}", drive, rest.replace('\\', "/"))
+    } else {
+        path.replace('\\', "/")
+    }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +121,16 @@ struct SpeakerInfo {
     name: String,
     sermon_count: u32,
     latest_date: String,
+}
+
+/// Describes how (or whether) jivetalking can be executed.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JivetalkingStatus {
+    available: bool,
+    /// `"native"`, `"wsl"`, or `"unavailable"`.
+    method: String,
+    message: String,
 }
 
 /// Entry returned by the GitHub Contents API directory listing.
@@ -162,6 +230,30 @@ fn extract_front_matter_field(content: &str, field: &str) -> Option<String> {
 
 // ── Commands ─────────────────────────────────────────────────────────────────
 
+/// Report how jivetalking can be executed on this system.
+#[tauri::command]
+fn check_jivetalking_status() -> JivetalkingStatus {
+    match jivetalking_method() {
+        JivetalkingMethod::Native => JivetalkingStatus {
+            available: true,
+            method: "native".to_string(),
+            message: "Jivetalking is available natively".to_string(),
+        },
+        JivetalkingMethod::Wsl => JivetalkingStatus {
+            available: true,
+            method: "wsl".to_string(),
+            message: "Jivetalking will run via Windows Subsystem for Linux".to_string(),
+        },
+        JivetalkingMethod::Unavailable => JivetalkingStatus {
+            available: false,
+            method: "unavailable".to_string(),
+            message: "Jivetalking is not available. Install WSL by running \
+                      'wsl --install' in an admin PowerShell to enable audio normalisation."
+                .to_string(),
+        },
+    }
+}
+
 #[tauri::command]
 fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, PublishPlanError> {
     if request.title.trim().is_empty() {
@@ -225,17 +317,27 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
         description: "Extract raw audio from source video".to_string(),
     }];
 
-    if cfg!(not(target_os = "windows")) {
-        steps.push(PublishStep {
-            id: "run-jivetalking".to_string(),
-            description: "Run Jivetalking on full extracted audio".to_string(),
-        });
-    } else {
-        steps.push(PublishStep {
-            id: "skip-jivetalking".to_string(),
-            description: "Skip Jivetalking audio normalisation (not available on Windows)"
-                .to_string(),
-        });
+    match jivetalking_method() {
+        JivetalkingMethod::Native => {
+            steps.push(PublishStep {
+                id: "run-jivetalking".to_string(),
+                description: "Run Jivetalking on full extracted audio".to_string(),
+            });
+        }
+        JivetalkingMethod::Wsl => {
+            steps.push(PublishStep {
+                id: "run-jivetalking-wsl".to_string(),
+                description: "Run Jivetalking on full extracted audio (via WSL)".to_string(),
+            });
+        }
+        JivetalkingMethod::Unavailable => {
+            steps.push(PublishStep {
+                id: "skip-jivetalking".to_string(),
+                description: "Skip Jivetalking audio normalisation (WSL not available; \
+                              run 'wsl --install' in an admin PowerShell to enable)"
+                    .to_string(),
+            });
+        }
     }
 
     steps.extend([
@@ -514,6 +616,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             build_publish_plan,
+            check_jivetalking_status,
             detect_leading_silence,
             list_series,
             list_speakers
@@ -559,15 +662,13 @@ mod tests {
 
         let plan = build_publish_plan(request).expect("plan should build");
 
-        let expected_jivetalking_step = if cfg!(not(target_os = "windows")) {
-            "run-jivetalking"
-        } else {
-            "skip-jivetalking"
-        };
-        assert!(plan
-            .steps
-            .iter()
-            .any(|s| s.id == expected_jivetalking_step));
+        // The jivetalking step depends on runtime detection:
+        //   native → "run-jivetalking"
+        //   WSL    → "run-jivetalking-wsl"
+        //   none   → "skip-jivetalking"
+        assert!(plan.steps.iter().any(|s| s.id == "run-jivetalking"
+            || s.id == "run-jivetalking-wsl"
+            || s.id == "skip-jivetalking"));
         assert!(plan.steps.iter().any(|s| s.id == "github-write"));
         assert!(plan.steps.iter().any(|s| s.id == "youtube-upload"));
         assert!(plan.markdown.contains("youtubeID"));
@@ -649,5 +750,48 @@ mod tests {
             extract_front_matter_field(content, "speaker"),
             Some("Jane Doe".to_string())
         );
+    }
+
+    #[test]
+    fn windows_path_to_wsl_converts_drive_letter() {
+        assert_eq!(
+            windows_path_to_wsl(r"C:\Users\foo\audio.flac"),
+            "/mnt/c/Users/foo/audio.flac"
+        );
+    }
+
+    #[test]
+    fn windows_path_to_wsl_handles_forward_slashes() {
+        assert_eq!(
+            windows_path_to_wsl("D:/recordings/sermon.mp4"),
+            "/mnt/d/recordings/sermon.mp4"
+        );
+    }
+
+    #[test]
+    fn windows_path_to_wsl_preserves_non_windows_path() {
+        assert_eq!(
+            windows_path_to_wsl("/home/user/audio.flac"),
+            "/home/user/audio.flac"
+        );
+    }
+
+    #[test]
+    fn jivetalking_method_returns_native_on_linux() {
+        // On the Linux CI runner, native is expected.
+        if cfg!(not(target_os = "windows")) {
+            assert_eq!(jivetalking_method(), JivetalkingMethod::Native);
+        }
+    }
+
+    #[test]
+    fn check_jivetalking_status_returns_valid_method() {
+        let status = check_jivetalking_status();
+        assert!(
+            status.method == "native"
+                || status.method == "wsl"
+                || status.method == "unavailable"
+        );
+        assert!(!status.message.is_empty());
     }
 }

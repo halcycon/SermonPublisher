@@ -155,14 +155,18 @@ jobs:
             "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-${JT_ARCH}"
           chmod +x "$GITHUB_WORKSPACE/desktop/src-tauri/binaries/jivetalking-${{ matrix.rust_target }}"
 
-      - name: Create jivetalking placeholder (Windows)
+      - name: Download jivetalking for WSL (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          # jivetalking does not publish Windows binaries yet; create a placeholder
-          # so the Tauri build succeeds. Users will need to supply their own binary.
+          # Download the Linux amd64 binary for execution via WSL at runtime.
+          Invoke-WebRequest -Uri "https://github.com/linuxmatters/jivetalking/releases/download/0.3.0/jivetalking-linux-amd64" `
+            -OutFile "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\jivetalking-wsl"
+
+          # Tauri still requires a Windows sidecar entry to exist so the build
+          # succeeds; create a small placeholder.
           $placeholder = "$env:GITHUB_WORKSPACE\desktop\src-tauri\binaries\jivetalking-${{ matrix.rust_target }}.exe"
-          Set-Content -Path $placeholder -Value "echo jivetalking is not yet available for Windows" -Encoding ASCII
+          Set-Content -Path $placeholder -Value "echo jivetalking runs via WSL on Windows" -Encoding ASCII
 
       # ── Build & release ──────────────────────────────────────────────
       - name: Build Tauri app
@@ -186,7 +190,7 @@ jobs:
 
             ### Bundled dependencies
             - **ffmpeg** — included in the installer (used for audio extraction and silence detection)
-            - **jivetalking** — included in the installer (used for audio processing and normalisation; Linux and macOS only; Windows builds skip this step)
+            - **jivetalking** — included in the installer (used for audio processing and normalisation; on Windows, runs via WSL if available)
 
             ### Notes
             - On macOS you may need to right-click → Open the first time to bypass Gatekeeper.

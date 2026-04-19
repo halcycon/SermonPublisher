@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "jivetalking-wsl: placeholder (replace with real Linux amd64 binary at build time)"
+exit 1
