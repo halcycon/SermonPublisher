@@ -1,0 +1,93 @@
+:root {
+  font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #111827;
+  background-color: #f3f4f6;
+}
+
+body {
+  margin: 0;
+}
+
+.container {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.subtitle {
+  margin-top: -0.5rem;
+  color: #4b5563;
+}
+
+.publish-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.8rem;
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
+}
+
+.publish-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.publish-form textarea,
+.publish-form input,
+.publish-form button {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.95rem;
+}
+
+.publish-form textarea {
+  resize: vertical;
+}
+
+.publish-form button {
+  grid-column: 1 / -1;
+  background: #1d4ed8;
+  color: white;
+  border-color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.publish-form button:disabled {
+  cursor: not-allowed;
+  background: #93c5fd;
+  border-color: #93c5fd;
+}
+
+.checkbox-row {
+  grid-column: 1 / -1;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.6rem !important;
+}
+
+.plan-card {
+  margin-top: 1rem;
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
+}
+
+.plan-card ul {
+  margin-top: 0;
+}
+
+.error {
+  margin-top: 0.8rem;
+  color: #b91c1c;
+  font-weight: 600;
+}
