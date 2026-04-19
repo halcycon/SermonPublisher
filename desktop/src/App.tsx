@@ -87,7 +87,7 @@ function App() {
   // Speaker state
   const [speakersList, setSpeakersList] = useState<SpeakerInfo[]>([]);
   const [speakersLoading, setSpeakersLoading] = useState(false);
-  const [newSpeakerMode, setNewSpeakerMode] = useState(true);
+  const [newSpeakerMode, setNewSpeakerMode] = useState(false);
 
   // Scripture state (array of references)
   const [scriptures, setScriptures] = useState<string[]>([""]);
