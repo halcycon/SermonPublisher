@@ -65,6 +65,9 @@ struct GitHubContentEntry {
     entry_type: String,
 }
 
+/// Number of most-recent sermon directories to scan when building the series list.
+const MAX_RECENT_SERMONS: usize = 30;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn slugify(value: &str) -> String {
@@ -295,7 +298,9 @@ fn detect_leading_silence(video_path: String) -> Result<f64, String> {
             let after = &line[pos + "silence_end:".len()..];
             if let Some(seconds_str) = after.split('|').next() {
                 if let Ok(seconds) = seconds_str.trim().parse::<f64>() {
-                    return Ok((seconds * 10.0).round() / 10.0);
+                    // Round to one decimal place.
+                    let precision = 10.0_f64;
+                    return Ok((seconds * precision).round() / precision);
                 }
             }
         }
@@ -350,7 +355,7 @@ async fn list_series(
     dirs.sort_by(|a, b| a.name.cmp(&b.name));
 
     // 2. For the most-recent entries, fetch raw index.md and extract series.
-    let recent: Vec<&&GitHubContentEntry> = dirs.iter().rev().take(30).collect();
+    let recent: Vec<&&GitHubContentEntry> = dirs.iter().rev().take(MAX_RECENT_SERMONS).collect();
     let mut series_map: HashMap<String, SeriesInfo> = HashMap::new();
 
     for dir in recent {
