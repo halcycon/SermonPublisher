@@ -12,7 +12,32 @@ on:
         type: string
 
 jobs:
+  # ── Validate version tag once before building ───────────────────────────
+  validate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Version must start with 'v' followed by semver (e.g. v0.1.0). Got: '$TAG'"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "## Release Tag: $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Build & upload per platform ─────────────────────────────────────────
   release:
+    needs: validate
     permissions:
       contents: write
     strategy:
@@ -39,21 +64,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Determine release version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
-            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-              echo "::error::Version must start with 'v' followed by semver (e.g. v0.1.0)"
-              exit 1
-            fi
-          else
-            TAG="${{ github.ref_name }}"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v4
 
       # ── System dependencies (Linux) ──────────────────────────────────
@@ -174,10 +184,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ steps.version.outputs.tag }}
-          releaseName: "Sermon Publisher ${{ steps.version.outputs.tag }}"
+          tagName: ${{ needs.validate.outputs.tag }}
+          releaseName: "Sermon Publisher ${{ needs.validate.outputs.tag }}"
           releaseBody: |
-            ## Sermon Publisher ${{ steps.version.outputs.tag }}
+            ## Sermon Publisher ${{ needs.validate.outputs.tag }}
 
             Download the installer for your platform below.
 
