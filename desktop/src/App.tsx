@@ -133,7 +133,7 @@ const today = new Date().toISOString().slice(0, 10);
 const CONTENT_DIR = "content/sermons";
 
 function generateId(): string {
-  return Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID();
 }
 
 function makeDefaultConfig(): NamedConfig {

@@ -237,8 +237,6 @@ fn build_markdown(
         format!("scripture:\n{}", items.join("\n"))
     };
 
-    let draft_value = if request.draft { "true" } else { "false" };
-
     format!(
         "---\n\
          title: \"{}\"\n\
@@ -260,7 +258,7 @@ fn build_markdown(
         scriptures_yaml,
         website_audio_path,
         thumbnail_path,
-        draft_value,
+        request.draft,
         slug,
         request.summary.trim()
     )
