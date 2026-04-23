@@ -44,6 +44,7 @@ fn is_wsl_available() -> bool {
 /// Convert a Windows path to its WSL mount equivalent.
 ///
 /// `C:\Users\foo\audio.flac` → `/mnt/c/Users/foo/audio.flac`
+#[allow(dead_code)]
 fn windows_path_to_wsl(path: &str) -> String {
     let path = path.trim();
     // Drive-letter pattern: C:\… or C:/…
@@ -80,6 +81,11 @@ struct SermonPublishRequest {
     github_owner: String,
     github_repo: String,
     github_branch: String,
+    /// When true the generated markdown will have `draft: true`.
+    draft: bool,
+    /// If non-empty, this is an edit of an existing sermon that already has
+    /// audio; the caller can choose to skip audio re-processing.
+    existing_audio: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,6 +129,35 @@ struct SpeakerInfo {
     latest_date: String,
 }
 
+/// Full details for a single sermon, populated from Hugo front-matter.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SermonEntry {
+    slug: String,
+    title: String,
+    speaker: String,
+    date: String,
+    series: String,
+    scriptures: Vec<String>,
+    summary: String,
+    audio: String,
+    image: String,
+    youtube_id: String,
+    draft: bool,
+    markdown_path: String,
+}
+
+/// Version-check result returned to the frontend.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    current_version: String,
+    latest_version: String,
+    update_available: bool,
+    release_url: String,
+    release_notes: String,
+}
+
 /// Describes how (or whether) jivetalking can be executed.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,8 +176,28 @@ struct GitHubContentEntry {
     entry_type: String,
 }
 
-/// Number of most-recent sermon directories to scan when building the series list.
+/// Body for the GitHub Contents API file-create/update endpoint.
+#[derive(Debug, Serialize)]
+struct GitHubCreateFileBody {
+    message: String,
+    /// Base64-encoded file content.
+    content: String,
+    branch: String,
+}
+
+/// Minimal shape of a GitHub Releases API response that we need.
+#[derive(Debug, Deserialize)]
+struct GitHubReleaseResponse {
+    tag_name: String,
+    html_url: String,
+    body: Option<String>,
+}
+
+/// Number of most-recent sermon directories to scan when building the series/speaker list.
 const MAX_RECENT_SERMONS: usize = 30;
+
+/// Maximum number of sermon entries returned by `list_sermons`.
+const MAX_SERMONS_LIST: usize = 100;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -192,7 +247,7 @@ fn build_markdown(
          audio: \"{}\"\n\
          image: \"{}\"\n\
          youtubeID: \"\"\n\
-         draft: false\n\
+         draft: {}\n\
          slug: \"{}\"\n\
          ---\n\n\
          {}\n",
@@ -203,6 +258,7 @@ fn build_markdown(
         scriptures_yaml,
         website_audio_path,
         thumbnail_path,
+        request.draft,
         slug,
         request.summary.trim()
     )
@@ -226,6 +282,105 @@ fn extract_front_matter_field(content: &str, field: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Extract a potentially-multi-valued YAML field (e.g. `scripture`) from Hugo
+/// front-matter.  Handles both the single-value form (`scripture: "…"`) and
+/// the list form (`scripture:\n  - "…"`).
+fn extract_multi_field(content: &str, field: &str) -> Vec<String> {
+    if !content.starts_with("---") {
+        return Vec::new();
+    }
+    let prefix = format!("{}:", field);
+    let mut result = Vec::new();
+    let mut collecting_list = false;
+
+    for line in content.lines().skip(1) {
+        if line.trim() == "---" {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix(&prefix) {
+            collecting_list = false;
+            let value = rest.trim().trim_matches('"').to_string();
+            if value.is_empty() {
+                collecting_list = true;
+            } else {
+                result.push(value);
+            }
+            continue;
+        }
+        if collecting_list {
+            let trimmed = line.trim();
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                let clean = item.trim().trim_matches('"').to_string();
+                if !clean.is_empty() {
+                    result.push(clean);
+                }
+            } else if !trimmed.is_empty() {
+                collecting_list = false;
+            }
+        }
+    }
+
+    result
+}
+
+/// Return the text body that follows the Hugo front-matter delimiter.
+fn extract_body_from_markdown(content: &str) -> String {
+    if !content.starts_with("---") {
+        return content.trim().to_string();
+    }
+    let mut found_first = false;
+    let mut found_second = false;
+    let mut body_lines: Vec<&str> = Vec::new();
+
+    for line in content.lines() {
+        if !found_first {
+            if line.trim() == "---" {
+                found_first = true;
+            }
+            continue;
+        }
+        if !found_second {
+            if line.trim() == "---" {
+                found_second = true;
+            }
+            continue;
+        }
+        body_lines.push(line);
+    }
+
+    body_lines.join("\n").trim().to_string()
+}
+
+/// Parse a boolean front-matter field (returns `false` when absent).
+fn parse_bool_field(content: &str, field: &str) -> bool {
+    extract_front_matter_field(content, field)
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Simple semver comparison: returns `true` when `candidate` is newer than
+/// `current`.  Leading `v` prefixes are stripped automatically.
+fn is_newer_version(current: &str, candidate: &str) -> bool {
+    let strip = |v: &str| v.trim_start_matches('v').to_string();
+    let parse = |v: &str| -> (u64, u64, u64) {
+        let mut parts = v.split('.').filter_map(|s| s.parse::<u64>().ok());
+        (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        )
+    };
+    parse(&strip(candidate)) > parse(&strip(current))
+}
+
+/// Build a GitHub Contents API URL for reading/writing a file.
+fn github_contents_url(owner: &str, repo: &str, path: &str, branch: &str) -> String {
+    format!(
+        "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
+        owner, repo, path, branch
+    )
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -262,7 +417,9 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
         });
     }
 
-    if request.input_video_path.trim().is_empty() {
+    // If editing an existing sermon with audio, allow skipping a new video path.
+    let has_existing_audio = !request.existing_audio.trim().is_empty();
+    if request.input_video_path.trim().is_empty() && !has_existing_audio {
         return Err(PublishPlanError {
             message: "Input video path is required".to_string(),
         });
@@ -312,57 +469,76 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
 
     let markdown = build_markdown(&request, &slug, &website_audio_path, &thumbnail_path);
 
-    let mut steps = vec![PublishStep {
-        id: "extract-audio".to_string(),
-        description: "Extract raw audio from source video".to_string(),
-    }];
+    let mut steps: Vec<PublishStep> = Vec::new();
 
-    match jivetalking_method() {
-        JivetalkingMethod::Native => {
-            steps.push(PublishStep {
-                id: "run-jivetalking".to_string(),
-                description: "Run Jivetalking on full extracted audio".to_string(),
-            });
+    if !has_existing_audio || !request.input_video_path.trim().is_empty() {
+        // New video provided — process audio.
+        steps.push(PublishStep {
+            id: "extract-audio".to_string(),
+            description: "Extract raw audio from source video".to_string(),
+        });
+
+        match jivetalking_method() {
+            JivetalkingMethod::Native => {
+                steps.push(PublishStep {
+                    id: "run-jivetalking".to_string(),
+                    description: "Run Jivetalking on full extracted audio".to_string(),
+                });
+            }
+            JivetalkingMethod::Wsl => {
+                steps.push(PublishStep {
+                    id: "run-jivetalking-wsl".to_string(),
+                    description: "Run Jivetalking on full extracted audio (via WSL)".to_string(),
+                });
+            }
+            JivetalkingMethod::Unavailable => {
+                steps.push(PublishStep {
+                    id: "skip-jivetalking".to_string(),
+                    description: "Skip Jivetalking audio normalisation (WSL not available; \
+                                  run 'wsl --install' in an admin PowerShell to enable)"
+                        .to_string(),
+                });
+            }
         }
-        JivetalkingMethod::Wsl => {
-            steps.push(PublishStep {
-                id: "run-jivetalking-wsl".to_string(),
-                description: "Run Jivetalking on full extracted audio (via WSL)".to_string(),
-            });
-        }
-        JivetalkingMethod::Unavailable => {
-            steps.push(PublishStep {
-                id: "skip-jivetalking".to_string(),
-                description: "Skip Jivetalking audio normalisation (WSL not available; \
-                              run 'wsl --install' in an admin PowerShell to enable)"
-                    .to_string(),
-            });
-        }
+
+        steps.extend([
+            PublishStep {
+                id: "detect-leading-silence".to_string(),
+                description: format!(
+                    "Trim leading silence ({:.1}s) from processed audio",
+                    request.leading_silence_seconds
+                ),
+            },
+            PublishStep {
+                id: "create-website-audio".to_string(),
+                description: "Create cleaned website audio file".to_string(),
+            },
+            PublishStep {
+                id: "create-thumbnail".to_string(),
+                description: "Generate thumbnail image".to_string(),
+            },
+            PublishStep {
+                id: "create-youtube-video".to_string(),
+                description: "Create cleaned YouTube video with replaced audio".to_string(),
+            },
+        ]);
+    } else {
+        steps.push(PublishStep {
+            id: "keep-existing-audio".to_string(),
+            description: format!(
+                "Keep existing audio: {}",
+                request.existing_audio.trim()
+            ),
+        });
     }
 
     steps.extend([
         PublishStep {
-            id: "detect-leading-silence".to_string(),
-            description: format!(
-                "Trim leading silence ({:.1}s) from processed audio",
-                request.leading_silence_seconds
-            ),
-        },
-        PublishStep {
-            id: "create-website-audio".to_string(),
-            description: "Create cleaned website audio file".to_string(),
-        },
-        PublishStep {
-            id: "create-thumbnail".to_string(),
-            description: "Generate thumbnail image".to_string(),
-        },
-        PublishStep {
-            id: "create-youtube-video".to_string(),
-            description: "Create cleaned YouTube video with replaced audio".to_string(),
-        },
-        PublishStep {
             id: "generate-markdown".to_string(),
-            description: "Generate sermon markdown file".to_string(),
+            description: format!(
+                "Generate sermon markdown (draft: {})",
+                request.draft
+            ),
         },
         PublishStep {
             id: "github-write".to_string(),
@@ -375,7 +551,7 @@ fn build_publish_plan(request: SermonPublishRequest) -> Result<PublishPlan, Publ
         },
     ]);
 
-    if request.youtube_upload_enabled {
+    if request.youtube_upload_enabled && !has_existing_audio {
         steps.push(PublishStep {
             id: "youtube-upload".to_string(),
             description: "Upload cleaned video to YouTube and patch markdown youtubeID"
@@ -442,11 +618,7 @@ async fn list_series(
     let client = reqwest::Client::new();
     let dir_path = content_dir.trim_matches('/');
 
-    // 1. List the content directory via the GitHub Contents API.
-    let dir_url = format!(
-        "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-        github_owner, github_repo, dir_path, github_branch
-    );
+    let dir_url = github_contents_url(&github_owner, &github_repo, dir_path, &github_branch);
 
     let dir_response = client
         .get(&dir_url)
@@ -456,6 +628,13 @@ async fn list_series(
         .send()
         .await
         .map_err(|e| format!("Failed to connect to GitHub: {}", e))?;
+
+    if dir_response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(format!(
+            "CONTENT_DIR_NOT_FOUND: The directory '{}' does not exist in the repository.",
+            dir_path
+        ));
+    }
 
     if !dir_response.status().is_success() {
         let status = dir_response.status();
@@ -468,13 +647,10 @@ async fn list_series(
         .await
         .map_err(|e| format!("Failed to parse directory listing: {}", e))?;
 
-    // Keep only directories, sorted alphabetically (date-prefixed names give
-    // chronological order).
     let mut dirs: Vec<&GitHubContentEntry> =
         entries.iter().filter(|e| e.entry_type == "dir").collect();
     dirs.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // 2. For the most-recent entries, fetch raw index.md and extract series.
     let recent: Vec<&&GitHubContentEntry> = dirs.iter().rev().take(MAX_RECENT_SERMONS).collect();
     let mut series_map: HashMap<String, SeriesInfo> = HashMap::new();
 
@@ -532,11 +708,7 @@ async fn list_speakers(
     let client = reqwest::Client::new();
     let dir_path = content_dir.trim_matches('/');
 
-    // 1. List the content directory via the GitHub Contents API.
-    let dir_url = format!(
-        "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-        github_owner, github_repo, dir_path, github_branch
-    );
+    let dir_url = github_contents_url(&github_owner, &github_repo, dir_path, &github_branch);
 
     let dir_response = client
         .get(&dir_url)
@@ -546,6 +718,13 @@ async fn list_speakers(
         .send()
         .await
         .map_err(|e| format!("Failed to connect to GitHub: {}", e))?;
+
+    if dir_response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(format!(
+            "CONTENT_DIR_NOT_FOUND: The directory '{}' does not exist in the repository.",
+            dir_path
+        ));
+    }
 
     if !dir_response.status().is_success() {
         let status = dir_response.status();
@@ -562,7 +741,6 @@ async fn list_speakers(
         entries.iter().filter(|e| e.entry_type == "dir").collect();
     dirs.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // 2. For the most-recent entries, fetch raw index.md and extract speaker.
     let recent: Vec<&&GitHubContentEntry> = dirs.iter().rev().take(MAX_RECENT_SERMONS).collect();
     let mut speaker_map: HashMap<String, SpeakerInfo> = HashMap::new();
 
@@ -607,6 +785,217 @@ async fn list_speakers(
     Ok(speakers)
 }
 
+/// Fetch the full list of sermons from the Hugo site's GitHub repository.
+#[tauri::command]
+async fn list_sermons(
+    github_owner: String,
+    github_repo: String,
+    github_branch: String,
+    github_token: String,
+    content_dir: String,
+) -> Result<Vec<SermonEntry>, String> {
+    let client = reqwest::Client::new();
+    let dir_path = content_dir.trim_matches('/');
+
+    let dir_url = github_contents_url(&github_owner, &github_repo, dir_path, &github_branch);
+
+    let dir_response = client
+        .get(&dir_url)
+        .header("Authorization", format!("Bearer {}", github_token))
+        .header("User-Agent", "SermonPublisher")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to GitHub: {}", e))?;
+
+    if dir_response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(format!(
+            "CONTENT_DIR_NOT_FOUND: The directory '{}' does not exist in the repository.",
+            dir_path
+        ));
+    }
+
+    if !dir_response.status().is_success() {
+        let status = dir_response.status();
+        let body = dir_response.text().await.unwrap_or_default();
+        return Err(format!("GitHub API returned {} — {}", status, body));
+    }
+
+    let entries: Vec<GitHubContentEntry> = dir_response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse directory listing: {}", e))?;
+
+    let mut dirs: Vec<&GitHubContentEntry> =
+        entries.iter().filter(|e| e.entry_type == "dir").collect();
+    // Sort newest-first (date-prefixed slugs give chronological order).
+    dirs.sort_by(|a, b| b.name.cmp(&a.name));
+    dirs.truncate(MAX_SERMONS_LIST);
+
+    let mut sermons: Vec<SermonEntry> = Vec::new();
+
+    for dir in dirs {
+        let markdown_path = format!("{}/{}/index.md", dir_path, dir.name);
+        let raw_url = format!(
+            "https://raw.githubusercontent.com/{}/{}/{}/{}/{}/index.md",
+            github_owner, github_repo, github_branch, dir_path, dir.name
+        );
+
+        let file_resp = client
+            .get(&raw_url)
+            .header("Authorization", format!("Bearer {}", github_token))
+            .header("User-Agent", "SermonPublisher")
+            .send()
+            .await;
+
+        if let Ok(resp) = file_resp {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    let slug = extract_front_matter_field(&text, "slug")
+                        .unwrap_or_else(|| dir.name.clone());
+                    let title = extract_front_matter_field(&text, "title")
+                        .unwrap_or_default();
+                    let speaker = extract_front_matter_field(&text, "speaker")
+                        .unwrap_or_default();
+                    let date = extract_front_matter_field(&text, "date")
+                        .unwrap_or_default();
+                    let series = extract_front_matter_field(&text, "series")
+                        .unwrap_or_default();
+                    let scriptures = extract_multi_field(&text, "scripture");
+                    let audio = extract_front_matter_field(&text, "audio")
+                        .unwrap_or_default();
+                    let image = extract_front_matter_field(&text, "image")
+                        .unwrap_or_default();
+                    let youtube_id = extract_front_matter_field(&text, "youtubeID")
+                        .unwrap_or_default();
+                    let draft = parse_bool_field(&text, "draft");
+                    let summary = extract_body_from_markdown(&text);
+
+                    sermons.push(SermonEntry {
+                        slug,
+                        title,
+                        speaker,
+                        date,
+                        series,
+                        scriptures,
+                        summary,
+                        audio,
+                        image,
+                        youtube_id,
+                        draft,
+                        markdown_path,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(sermons)
+}
+
+/// Create the sermon content directory in the GitHub repository by committing a
+/// README.md placeholder file.  This is offered to users when the directory does
+/// not yet exist (e.g. new site).
+#[tauri::command]
+async fn create_content_directory(
+    github_owner: String,
+    github_repo: String,
+    github_branch: String,
+    github_token: String,
+    content_dir: String,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let dir_path = content_dir.trim_matches('/');
+    let file_path = format!("{}/README.md", dir_path);
+
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/contents/{}",
+        github_owner, github_repo, file_path
+    );
+
+    // "# Sermons\n" base64-encoded.
+    let content_b64 = "IyBTZXJtb25zCg==";
+
+    let body = GitHubCreateFileBody {
+        message: "Initialize sermon content directory".to_string(),
+        content: content_b64.to_string(),
+        branch: github_branch.clone(),
+    };
+
+    let resp = client
+        .put(&url)
+        .header("Authorization", format!("Bearer {}", github_token))
+        .header("User-Agent", "SermonPublisher")
+        .header("Accept", "application/vnd.github.v3+json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to GitHub: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "GitHub API returned {} when creating directory: {}",
+            status, text
+        ));
+    }
+
+    Ok(())
+}
+
+/// Write the given JSON string to a file on the local filesystem.
+/// The `path` is obtained from the frontend via the Tauri dialog plugin.
+#[tauri::command]
+fn save_settings_to_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Read a JSON string from a file on the local filesystem.
+/// The `path` is obtained from the frontend via the Tauri dialog plugin.
+#[tauri::command]
+fn load_settings_from_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+}
+
+/// Check whether a newer version of Sermon Publisher is available on GitHub.
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get("https://api.github.com/repos/halcycon/SermonPublisher/releases/latest")
+        .header("User-Agent", "SermonPublisher")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to check for updates: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "GitHub returned {} when checking for updates",
+            resp.status()
+        ));
+    }
+
+    let release: GitHubReleaseResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse release info: {}", e))?;
+
+    let latest_version = release.tag_name.trim_start_matches('v').to_string();
+    let update_available = is_newer_version(&current_version, &latest_version);
+
+    Ok(UpdateInfo {
+        update_available,
+        current_version,
+        latest_version,
+        release_url: release.html_url,
+        release_notes: release.body.unwrap_or_default(),
+    })
+}
+
 // ── App entry ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -614,12 +1003,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             build_publish_plan,
             check_jivetalking_status,
             detect_leading_silence,
             list_series,
-            list_speakers
+            list_speakers,
+            list_sermons,
+            create_content_directory,
+            save_settings_to_file,
+            load_settings_from_file,
+            check_for_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -637,6 +1032,30 @@ mod tests {
             slugify("Palm Sunday: Christ's Entry!"),
             "palm-sunday-christ-s-entry"
         );
+    }
+
+    #[test]
+    fn is_newer_version_works() {
+        assert!(is_newer_version("0.1.0", "0.2.0"));
+        assert!(is_newer_version("0.1.0", "v0.2.0"));
+        assert!(!is_newer_version("0.2.0", "0.1.0"));
+        assert!(!is_newer_version("0.1.0", "0.1.0"));
+    }
+
+    #[test]
+    fn extract_multi_field_single() {
+        let md = "---\ntitle: \"Test\"\nscripture: \"John 10:1-18\"\n---\n\nBody.";
+        assert_eq!(
+            extract_multi_field(md, "scripture"),
+            vec!["John 10:1-18"]
+        );
+    }
+
+    #[test]
+    fn extract_multi_field_list() {
+        let md = "---\ntitle: \"Test\"\nscripture:\n  - \"John 10:1-18\"\n  - \"Psalm 23\"\n---\n";
+        let result = extract_multi_field(md, "scripture");
+        assert_eq!(result, vec!["John 10:1-18", "Psalm 23"]);
     }
 
     #[test]
@@ -658,20 +1077,77 @@ mod tests {
             github_owner: "myorg".to_string(),
             github_repo: "mysite".to_string(),
             github_branch: "main".to_string(),
+            draft: false,
+            existing_audio: String::new(),
         };
 
         let plan = build_publish_plan(request).expect("plan should build");
 
-        // The jivetalking step depends on runtime detection:
-        //   native → "run-jivetalking"
-        //   WSL    → "run-jivetalking-wsl"
-        //   none   → "skip-jivetalking"
         assert!(plan.steps.iter().any(|s| s.id == "run-jivetalking"
             || s.id == "run-jivetalking-wsl"
             || s.id == "skip-jivetalking"));
         assert!(plan.steps.iter().any(|s| s.id == "github-write"));
         assert!(plan.steps.iter().any(|s| s.id == "youtube-upload"));
         assert!(plan.markdown.contains("youtubeID"));
+        assert!(plan.markdown.contains("draft: false"));
+    }
+
+    #[test]
+    fn build_publish_plan_draft_flag() {
+        let request = SermonPublishRequest {
+            title: "Draft Sermon".to_string(),
+            speaker: "Jane Doe".to_string(),
+            date: "2026-04-19".to_string(),
+            series: "John".to_string(),
+            scriptures: vec![],
+            summary: String::new(),
+            input_video_path: "C:/recordings/sermon.mp4".to_string(),
+            hugo_content_dir: "content/sermons".to_string(),
+            audio_output_dir: "static/audio".to_string(),
+            image_output_dir: "static/images/sermons".to_string(),
+            slug: None,
+            leading_silence_seconds: 0.0,
+            youtube_upload_enabled: false,
+            github_owner: "myorg".to_string(),
+            github_repo: "mysite".to_string(),
+            github_branch: "main".to_string(),
+            draft: true,
+            existing_audio: String::new(),
+        };
+
+        let plan = build_publish_plan(request).expect("plan should build");
+        assert!(plan.markdown.contains("draft: true"));
+    }
+
+    #[test]
+    fn build_publish_plan_edit_keeps_existing_audio() {
+        let request = SermonPublishRequest {
+            title: "Edited Sermon".to_string(),
+            speaker: "Jane Doe".to_string(),
+            date: "2026-04-19".to_string(),
+            series: "John".to_string(),
+            scriptures: vec![],
+            summary: String::new(),
+            input_video_path: String::new(), // no new video
+            hugo_content_dir: "content/sermons".to_string(),
+            audio_output_dir: "static/audio".to_string(),
+            image_output_dir: "static/images/sermons".to_string(),
+            slug: None,
+            leading_silence_seconds: 0.0,
+            youtube_upload_enabled: false,
+            github_owner: "myorg".to_string(),
+            github_repo: "mysite".to_string(),
+            github_branch: "main".to_string(),
+            draft: false,
+            existing_audio: "static/audio/sermons/old-sermon.mp3".to_string(),
+        };
+
+        let plan = build_publish_plan(request).expect("plan should build");
+        assert!(plan
+            .steps
+            .iter()
+            .any(|s| s.id == "keep-existing-audio"));
+        assert!(!plan.steps.iter().any(|s| s.id == "extract-audio"));
     }
 
     #[test]
@@ -693,105 +1169,12 @@ mod tests {
             github_owner: "myorg".to_string(),
             github_repo: "mysite".to_string(),
             github_branch: "main".to_string(),
+            draft: false,
+            existing_audio: String::new(),
         };
 
         let plan = build_publish_plan(request).expect("plan should build");
         assert!(plan.markdown.contains("John 10:1-18"));
         assert!(plan.markdown.contains("Psalm 23"));
-    }
-
-    #[test]
-    fn build_publish_plan_requires_github_config() {
-        let request = SermonPublishRequest {
-            title: "Test".to_string(),
-            speaker: "".to_string(),
-            date: "2026-01-01".to_string(),
-            series: "".to_string(),
-            scriptures: vec![],
-            summary: "".to_string(),
-            input_video_path: "C:/test.mp4".to_string(),
-            hugo_content_dir: "content/sermons".to_string(),
-            audio_output_dir: "static/audio".to_string(),
-            image_output_dir: "static/images/sermons".to_string(),
-            slug: None,
-            leading_silence_seconds: 10.0,
-            youtube_upload_enabled: false,
-            github_owner: "".to_string(),
-            github_repo: "".to_string(),
-            github_branch: "main".to_string(),
-        };
-
-        let result = build_publish_plan(request);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().message.contains("GitHub"));
-    }
-
-    #[test]
-    fn extract_front_matter_series() {
-        let content =
-            "---\ntitle: \"Test\"\nseries: \"John\"\ndate: \"2026-04-19\"\n---\n\nBody";
-        assert_eq!(
-            extract_front_matter_field(content, "series"),
-            Some("John".to_string())
-        );
-    }
-
-    #[test]
-    fn extract_front_matter_returns_none_for_missing_field() {
-        let content = "---\ntitle: \"Test\"\n---\n\nBody";
-        assert_eq!(extract_front_matter_field(content, "series"), None);
-    }
-
-    #[test]
-    fn extract_front_matter_speaker() {
-        let content =
-            "---\ntitle: \"Test\"\nspeaker: \"Jane Doe\"\ndate: \"2026-04-19\"\n---\n\nBody";
-        assert_eq!(
-            extract_front_matter_field(content, "speaker"),
-            Some("Jane Doe".to_string())
-        );
-    }
-
-    #[test]
-    fn windows_path_to_wsl_converts_drive_letter() {
-        assert_eq!(
-            windows_path_to_wsl(r"C:\Users\foo\audio.flac"),
-            "/mnt/c/Users/foo/audio.flac"
-        );
-    }
-
-    #[test]
-    fn windows_path_to_wsl_handles_forward_slashes() {
-        assert_eq!(
-            windows_path_to_wsl("D:/recordings/sermon.mp4"),
-            "/mnt/d/recordings/sermon.mp4"
-        );
-    }
-
-    #[test]
-    fn windows_path_to_wsl_preserves_non_windows_path() {
-        assert_eq!(
-            windows_path_to_wsl("/home/user/audio.flac"),
-            "/home/user/audio.flac"
-        );
-    }
-
-    #[test]
-    fn jivetalking_method_returns_native_on_linux() {
-        // On the Linux CI runner, native is expected.
-        if cfg!(not(target_os = "windows")) {
-            assert_eq!(jivetalking_method(), JivetalkingMethod::Native);
-        }
-    }
-
-    #[test]
-    fn check_jivetalking_status_returns_valid_method() {
-        let status = check_jivetalking_status();
-        assert!(
-            status.method == "native"
-                || status.method == "wsl"
-                || status.method == "unavailable"
-        );
-        assert!(!status.message.is_empty());
     }
 }

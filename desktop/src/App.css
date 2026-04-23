@@ -373,3 +373,481 @@ h1 {
   color: #b91c1c;
   font-weight: 600;
 }
+
+/* ── App header ───────────────────────────────────────────────────────────── */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.app-title {
+  margin: 0;
+  flex: 1;
+}
+
+.update-badge {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 20px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.update-badge:hover {
+  background: #fde68a;
+}
+
+/* ── Tab navigation ───────────────────────────────────────────────────────── */
+
+.tab-nav {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1rem;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 0.55rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: color 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tab-btn:hover {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.tab-btn--active {
+  color: #1d4ed8;
+  border-bottom-color: #1d4ed8;
+  background: white;
+}
+
+.tab-content {
+  min-height: 200px;
+}
+
+/* ── Active config bar ────────────────────────────────────────────────────── */
+
+.active-config-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.active-config-label {
+  flex: 1;
+  color: #1e40af;
+}
+
+/* ── Notices ──────────────────────────────────────────────────────────────── */
+
+.notice {
+  border-radius: 8px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.notice--warn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.notice--ok {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.notice--info {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border: 1px solid #bfdbfe;
+}
+
+.small-hint {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ── Form actions row ─────────────────────────────────────────────────────── */
+
+.form-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ── File row ─────────────────────────────────────────────────────────────── */
+
+.file-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.file-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Draft badge ──────────────────────────────────────────────────────────── */
+
+.draft-badge {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+/* ── Markdown preview ─────────────────────────────────────────────────────── */
+
+.markdown-preview {
+  margin-top: 0.6rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.6rem;
+}
+
+.markdown-preview summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.markdown-preview pre {
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 0.6rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.4rem 0 0;
+}
+
+/* ── Tab toolbar ──────────────────────────────────────────────────────────── */
+
+.tab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.tab-heading {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* ── Sermons tab ──────────────────────────────────────────────────────────── */
+
+.sermons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sermon-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+}
+
+.sermon-card--draft {
+  border-left: 3px solid #fcd34d;
+}
+
+.sermon-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.sermon-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.sermon-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sermon-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 0.2rem;
+}
+
+.sermon-summary {
+  font-size: 0.85rem;
+  color: #374151;
+  margin: 0.2rem 0 0;
+  line-height: 1.4;
+}
+
+.sermon-audio {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-family: monospace;
+  margin: 0.25rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-hint {
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+/* ── Settings tab ─────────────────────────────────────────────────────────── */
+
+.config-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+}
+
+.config-selector select {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.95rem;
+}
+
+.config-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.config-card--active {
+  border-color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.config-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.config-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #111827;
+}
+
+.config-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.config-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.config-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.config-fields input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+.span-full {
+  grid-column: 1 / -1;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* ── Danger button ────────────────────────────────────────────────────────── */
+
+.btn-danger {
+  background: white;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+/* ── Log tab ──────────────────────────────────────────────────────────────── */
+
+.log-tab {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 200px);
+  min-height: 300px;
+}
+
+.log-list {
+  flex: 1;
+  overflow-y: auto;
+  background: #111827;
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.log-entry {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+}
+
+.log-entry--debug { color: #6b7280; }
+.log-entry--info  { color: #d1fae5; }
+.log-entry--warn  { color: #fde68a; }
+.log-entry--error { color: #fca5a5; background: rgba(185,28,28,0.15); }
+
+.log-time {
+  color: #4b5563;
+  flex-shrink: 0;
+}
+
+.log-level-tag {
+  flex-shrink: 0;
+  min-width: 3rem;
+  text-align: right;
+  font-weight: 700;
+}
+
+.log-level-tag--debug { color: #4b5563; }
+.log-level-tag--info  { color: #34d399; }
+.log-level-tag--warn  { color: #fbbf24; }
+.log-level-tag--error { color: #f87171; }
+
+.log-message {
+  word-break: break-word;
+}
+
+.log-level-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.log-level-label select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+/* ── Log badge on tab button ──────────────────────────────────────────────── */
+
+.log-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #dc2626;
+  color: white;
+  border-radius: 10px;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.tab-log-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}

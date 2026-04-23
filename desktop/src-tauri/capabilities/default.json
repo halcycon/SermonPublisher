@@ -9,6 +9,8 @@
     "shell:allow-execute",
     "shell:allow-stdin-write",
     "shell:allow-kill",
-    "shell:default"
+    "shell:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }
