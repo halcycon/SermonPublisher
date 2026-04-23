@@ -30,6 +30,11 @@ The release installers include:
 - **ffmpeg** — used for audio extraction, silence detection, and video
   processing. A platform-specific static build is bundled as a Tauri sidecar so
   you do not need to install ffmpeg separately.
+- **jivetalking** — used for audio normalisation. On Windows, the installer
+  bundles the Linux binary and runs it through WSL at runtime.
+
+> **Windows requirement (release + development):** WSL must be installed to use
+> jivetalking-backed audio normalisation.
 
 ## Features
 
@@ -61,6 +66,8 @@ The release installers include:
 The sections below walk through setting up a development environment from
 scratch on each supported platform.  If you only want to **use** the app,
 download a pre-built installer from the [Releases](../../releases) page instead.
+On Windows, WSL is required for jivetalking in both release use and local
+development.
 
 ### Prerequisites (all platforms)
 
@@ -76,7 +83,7 @@ full list.
 
 ---
 
-### Windows (WSL setup included)
+### Windows (WSL required for jivetalking)
 
 Sermon Publisher runs natively on Windows, but the **jivetalking** audio
 normalisation tool is a Linux binary.  On Windows the app automatically
@@ -298,11 +305,12 @@ binaries are present in `desktop/src-tauri/binaries/`.
 | Binary | What it does | Where to get it |
 |--------|-------------|-----------------|
 | **ffmpeg** | Audio extraction, silence detection, video processing | <https://ffmpeg.org/download.html> — place a static build at `binaries/ffmpeg-<rust-target>` (e.g. `ffmpeg-x86_64-pc-windows-msvc.exe`) |
-| **jivetalking** | Audio normalisation / loudness processing | <https://github.com/linuxmatters/jivetalking/releases> — place the binary at `binaries/jivetalking-<rust-target>` |
+| **jivetalking** | Audio normalisation / loudness processing | <https://github.com/linuxmatters/jivetalking/releases> — Linux/macOS: place at `binaries/jivetalking-<rust-target>`; Windows (WSL): place Linux amd64 binary at `binaries/jivetalking-wsl` |
 
-On Windows, jivetalking runs through WSL.  The release CI places the Linux
-binary at `binaries/jivetalking-wsl` and a placeholder Windows sidecar at
-`binaries/jivetalking-x86_64-pc-windows-msvc.exe`.
+On Windows, jivetalking runs through WSL. The release CI downloads the Linux
+jivetalking binary and includes it in the installer as `binaries/jivetalking-wsl`,
+plus a placeholder Windows sidecar at
+`binaries/jivetalking-x86_64-pc-windows-msvc.exe` so Tauri packaging succeeds.
 
 ### Recommended IDE setup
 
